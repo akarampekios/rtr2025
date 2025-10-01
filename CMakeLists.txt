@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
+
 project(CyberpunkCityDemo)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -24,6 +25,7 @@ add_subdirectory(external/glfw)
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/external/auto-vk/include)
 include_directories(${CMAKE_SOURCE_DIR}/external/glm)
 include_directories(${CMAKE_SOURCE_DIR}/external/imgui)
@@ -34,29 +36,21 @@ include_directories(${Vulkan_INCLUDE_DIRS})
 # add_subdirectory(external/auto-vk)
 
 # Add executable
-add_executable(CyberpunkCityDemo
-    src/main.cpp
-    src/Application.cpp
-    src/SimpleRenderer.cpp
-    src/Camera.cpp
-    src/Scene.cpp
-    src/AssetLoader.cpp
-    src/ShaderManager.cpp
-    src/GLTFLoader.cpp
-    external/imgui/imgui.cpp
-    external/imgui/imgui_demo.cpp
-    external/imgui/imgui_draw.cpp
-    external/imgui/imgui_tables.cpp
-    external/imgui/imgui_widgets.cpp
-    external/imgui/backends/imgui_impl_glfw.cpp
-    external/imgui/backends/imgui_impl_vulkan.cpp
-)
+file(GLOB_RECURSE SOURCES "src/*.cpp")
+add_executable(CyberpunkCityDemo ${SOURCES})
 
 # Link libraries
-target_link_libraries(CyberpunkCityDemo
-    ${Vulkan_LIBRARIES}
-    glfw
-    ${OPENGL_LIBRARIES}
+target_link_libraries(CyberpunkCityDemo PRIVATE glfw Vulkan::Vulkan)
+
+# Configure dependencies
+target_compile_definitions(CyberpunkCityDemo PRIVATE
+    GLFW_INCLUDE_VULKAN
+    GLM_FORCE_DEFAULT_ALIGNED_GENTYPES
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_ENABLE_EXPERIMENTAL
+    STB_IMAGE_IMPLEMENTATION
+    VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
+    VULKAN_HPP_NO_STRUCT_CONSTRUCTORS=1
 )
 
 # Compiler-specific options

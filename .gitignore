@@ -21,6 +21,9 @@
 *.recipe
 *.log
 
+# JetBrains
+.idea
+
 # MSBuild intermediates under build tree
 build/**/Release/
 build/**/Debug/
