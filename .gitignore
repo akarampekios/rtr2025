@@ -1,0 +1,55 @@
+# Build output
+/build/
+/build.bak/
+/build-*
+*/CMakeCache.txt
+*/CMakeFiles/
+*/cmake_install.cmake
+*/Makefile
+
+# Visual Studio artifacts
+/.vs/
+*.vcxproj.user
+*.sdf
+*.opensdf
+*.ipch
+*.tlog
+*.pdb
+*.ilk
+*.obj
+*.lastbuildstate
+*.recipe
+*.log
+
+# MSBuild intermediates under build tree
+build/**/Release/
+build/**/Debug/
+build/**/x64/
+build/**/bin/
+build/**/lib/
+
+# Binaries
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Shader compilation outputs (generated)
+shaders/*.spv
+build/bin/shaders/
+
+# External dependency build outputs
+external/**/CMakeCache.txt
+external/**/CMakeFiles/
+external/**/cmake_install.cmake
+external/**/Makefile
+external/**/.vs/
+external/**/build/
+external/**/bin/
+external/**/lib/
+external/**/obj/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
