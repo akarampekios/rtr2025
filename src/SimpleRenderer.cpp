@@ -4,14 +4,17 @@
 #include "ShaderManager.h"
 #include "GLTFLoader.h"
 
-#include <vulkan/vulkan.h>
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <vulkan/vulkan_win32.h>
-#endif
+#include "rhi/structs.hpp"
+#include "rhi/instance.hpp"
+#include "rhi/physical_device.hpp"
+
+// #if defined(_WIN32)
+// #ifndef NOMINMAX
+// #define NOMINMAX
+// #endif
+// #include <windows.h>
+// #include <vulkan/vulkan_win32.h>
+// #endif
 
 #include <array>
 #include <chrono>
@@ -23,28 +26,27 @@
 #include <vector>
 #include <algorithm>
 
+static const std::vector<std::string> PHYSICAL_DEVICE_EXTENSIONS = {
+  VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+  VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
+  VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
+  VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
+  VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
+  VK_KHR_SPIRV_1_4_EXTENSION_NAME,
+  VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+  VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
+  VK_KHR_MAINTENANCE3_EXTENSION_NAME
+};
+
+static const std::vector DEVICE_QUEUE_TYPES = {
+  RHI::QueueType::GRAPHICS,
+  RHI::QueueType::PRESENTATION,
+  RHI::QueueType::TRANSFER,
+  RHI::QueueType::COMPUTE,
+};
+
+
 namespace {
-
-const std::vector<const char*> kRequiredInstanceExtensions = {
-#if defined(_WIN32)
-    VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-#endif
-    VK_KHR_SURFACE_EXTENSION_NAME,
-    VK_EXT_DEBUG_UTILS_EXTENSION_NAME
-};
-
-const std::vector<const char*> kRequiredDeviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-    VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-    VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-    VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
-    VK_KHR_SPIRV_1_4_EXTENSION_NAME,
-    VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-    VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
-    VK_KHR_MAINTENANCE3_EXTENSION_NAME
-};
-
 VkTransformMatrixKHR makeIdentityTransformMatrix() {
     VkTransformMatrixKHR matrix{};
     matrix.matrix[0][0] = 1.0f;
@@ -52,7 +54,6 @@ VkTransformMatrixKHR makeIdentityTransformMatrix() {
     matrix.matrix[2][2] = 1.0f;
     return matrix;
 }
-
 } // namespace
 
 namespace {
@@ -72,20 +73,6 @@ const char* layoutToString(VkImageLayout layout) {
     }
 }
 } // namespace
-
-bool SimpleRenderer::checkDeviceExtensionSupport(VkPhysicalDevice device) {
-    uint32_t extensionCount = 0;
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
-    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
-
-    std::set<std::string> requiredExtensions(kRequiredDeviceExtensions.begin(), kRequiredDeviceExtensions.end());
-    for (const auto& ext : availableExtensions) {
-        requiredExtensions.erase(ext.extensionName);
-    }
-
-    return requiredExtensions.empty();
-}
 
 bool SimpleRenderer::findQueueFamilies(VkPhysicalDevice device, uint32_t& graphicsFamily, uint32_t& presentFamily) {
     graphicsFamily = UINT32_MAX;
@@ -118,38 +105,6 @@ bool SimpleRenderer::findQueueFamilies(VkPhysicalDevice device, uint32_t& graphi
     return false;
 }
 
-bool SimpleRenderer::isDeviceSuitable(VkPhysicalDevice device) {
-    uint32_t graphicsFamily = UINT32_MAX;
-    uint32_t presentFamily = UINT32_MAX;
-    if (!findQueueFamilies(device, graphicsFamily, presentFamily)) {
-        return false;
-    }
-
-    if (!checkDeviceExtensionSupport(device)) {
-        return false;
-    }
-
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures{};
-    accelFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{};
-    rtPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-    rtPipelineFeatures.pNext = &accelFeatures;
-
-    VkPhysicalDeviceBufferDeviceAddressFeatures bufferAddressFeatures{};
-    bufferAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
-    bufferAddressFeatures.pNext = &rtPipelineFeatures;
-
-    VkPhysicalDeviceFeatures2 deviceFeatures2{};
-    deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    deviceFeatures2.pNext = &bufferAddressFeatures;
-    vkGetPhysicalDeviceFeatures2(device, &deviceFeatures2);
-
-    return bufferAddressFeatures.bufferDeviceAddress == VK_TRUE &&
-           accelFeatures.accelerationStructure == VK_TRUE &&
-           rtPipelineFeatures.rayTracingPipeline == VK_TRUE;
-}
-
 VkDeviceAddress SimpleRenderer::getBufferDeviceAddress(VkBuffer buffer) const {
     VkBufferDeviceAddressInfo addressInfo{};
     addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
@@ -157,7 +112,7 @@ VkDeviceAddress SimpleRenderer::getBufferDeviceAddress(VkBuffer buffer) const {
     return vkGetBufferDeviceAddress(m_device, &addressInfo);
 }
 
-SimpleRenderer::SimpleRenderer(GLFWwindow* window)
+SimpleRenderer::SimpleRenderer(RHI::Window* window)
     : m_window(window)
     , m_graphicsQueueFamilyIndex(UINT32_MAX)
     , m_presentQueueFamilyIndex(UINT32_MAX)
@@ -226,10 +181,13 @@ SimpleRenderer::~SimpleRenderer() {
     
     vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
     vkDestroyDevice(m_device, nullptr);
-    vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-    vkDestroyInstance(m_instance, nullptr);
+
+    // NOTE these are handled by RAII now
+    // vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+    // vkDestroyInstance(m_instance, nullptr);
 }
 
+// FIXME: Switch to RAII and dynamic rendering to simplify the setup
 void SimpleRenderer::initVulkan() {
     createInstance();
     createSurface();
@@ -237,6 +195,7 @@ void SimpleRenderer::initVulkan() {
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+    // FIXME: switch to dynamic rendering
     createRenderPass();
     createDescriptorSetLayout();
     createGraphicsPipeline();
@@ -253,65 +212,38 @@ void SimpleRenderer::initVulkan() {
 }
 
 void SimpleRenderer::createInstance() {
-    VkApplicationInfo appInfo{};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "Cyberpunk City Demo";
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "No Engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
-    
-    VkInstanceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pApplicationInfo = &appInfo;
-    
-    std::vector<const char*> extensions;
-    uint32_t glfwExtensionCount = 0;
-    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-    extensions.assign(glfwExtensions, glfwExtensions + glfwExtensionCount);
-    for (const char* required : kRequiredInstanceExtensions) {
-        if (std::find(extensions.begin(), extensions.end(), required) == extensions.end()) {
-            extensions.push_back(required);
-        }
-    }
+    RHI::Instance::Settings instanceSettings {
+      .enableDebugUtilities = true,
+      .surfaceExtensions = RHI::Window::getInstanceSurfaceExtensions(),
+    };
 
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-    createInfo.ppEnabledExtensionNames = extensions.data();
-    createInfo.enabledLayerCount = 0;
-    
-    if (vkCreateInstance(&createInfo, nullptr, &m_instance) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create instance!");
-    }
+    instance = std::make_unique<RHI::Instance>(instanceSettings);
+
+    // FIXME: for backward compatibility, there is no need to mess with the raw vk pointer anymore
+    m_instance = *instance->vkGetInstance();
 }
 
 void SimpleRenderer::createSurface() {
-    if (glfwCreateWindowSurface(m_instance, m_window, nullptr, &m_surface) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create window surface!");
-    }
+    m_window->createSurface(*instance);
+    m_surface = *m_window->vkGetSurface();
 }
 
 void SimpleRenderer::pickPhysicalDevice() {
-    uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
-    
-    if (deviceCount == 0) {
-        throw std::runtime_error("failed to find GPUs with Vulkan support!");
-    }
-    
-    std::vector<VkPhysicalDevice> devices(deviceCount);
-    vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
-    
-    m_physicalDevice = VK_NULL_HANDLE;
-    for (const auto& device : devices) {
-        if (isDeviceSuitable(device)) {
-            m_physicalDevice = device;
-            break;
-        }
-    }
+  RHI::PhysicalDevice::Requirements const physicalDeviceRequirements {
+    .requiredExtensions = PHYSICAL_DEVICE_EXTENSIONS,
+    .requiredQueueTypes = DEVICE_QUEUE_TYPES,
+  };
 
-    if (m_physicalDevice == VK_NULL_HANDLE) {
-        throw std::runtime_error("failed to find a suitable GPU!");
-    }
+  physicalDevice = std::make_unique<RHI::PhysicalDevice>(
+    RHI::PhysicalDevice::findCompatiblePhysicalDevice(
+      physicalDeviceRequirements,
+      *instance,
+      *m_window
+    )
+  );
+
+  // FIXME: for backward compatibility, there is no need to mess with the raw vk pointer anymore
+  m_physicalDevice = *physicalDevice->vkGetPhysicalDevice();
 }
 
 void SimpleRenderer::createLogicalDevice() {
@@ -366,8 +298,8 @@ void SimpleRenderer::createLogicalDevice() {
     createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
     createInfo.pEnabledFeatures = &deviceFeatures;
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(kRequiredDeviceExtensions.size());
-    createInfo.ppEnabledExtensionNames = kRequiredDeviceExtensions.data();
+    createInfo.enabledExtensionCount = static_cast<uint32_t>(PHYSICAL_DEVICE_EXTENSIONS.size());
+    createInfo.ppEnabledExtensionNames = PHYSICAL_DEVICE_EXTENSIONS.data();
     createInfo.enabledLayerCount = 0;
 
     if (vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS) {

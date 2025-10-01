@@ -6,8 +6,13 @@
 #include <chrono>
 #include <thread>
 
+#include "rhi/instance.hpp"
+#include "rhi/window.hpp"
+#include "engine/window_observers/default_observer.hpp"
+#include "engine/window_observers/camera_movement_observer.hpp"
+
 Application::Application() 
-    : m_window(nullptr)
+    : window({})
     , m_running(false)
     , m_lastTime(0.0f)
     , m_deltaTime(0.0f) {
@@ -18,50 +23,14 @@ Application::~Application() {
 }
 
 void Application::run() {
-    initWindow();
     initVulkan();
+    initWindowObservers();
     mainLoop();
-}
-
-void Application::initWindow() {
-    glfwInit();
-    
-    // Don't create OpenGL context
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    
-    m_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE, nullptr, nullptr);
-    if (!m_window) {
-        throw std::runtime_error("Failed to create GLFW window");
-    }
-    
-    std::cout << "Window created successfully: " << WINDOW_WIDTH << "x" << WINDOW_HEIGHT << std::endl;
-    
-    glfwSetWindowUserPointer(m_window, this);
-    
-    // Input callbacks
-    glfwSetKeyCallback(m_window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-        auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-        if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-            app->m_running = false;
-        }
-    });
-    
-    glfwSetCursorPosCallback(m_window, [](GLFWwindow* window, double xpos, double ypos) {
-        auto* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
-        // Camera will handle mouse input
-    });
-    
-    glfwSetMouseButtonCallback(m_window, [](GLFWwindow* window, int button, int action, int mods) {
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-        }
-    });
 }
 
 void Application::initVulkan() {
     std::cout << "Creating renderer..." << std::endl;
-    m_renderer = std::make_unique<SimpleRenderer>(m_window);
+    m_renderer = std::make_unique<SimpleRenderer>(&window);
     
     std::cout << "Creating camera..." << std::endl;
     m_camera = std::make_unique<Camera>(WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -80,20 +49,22 @@ void Application::initVulkan() {
     std::cout << "Vulkan initialization complete!" << std::endl;
 }
 
+void Application::initWindowObservers() {
+  rootObserver = std::make_unique<Engine::DefaultObserver>(window);
+  cameraObserver = std::make_unique<Engine::CameraMovementObserver>(*m_camera);
+
+  window.addObserver("root", &*rootObserver);
+  window.addObserver("camera", &*cameraObserver);
+}
+
 void Application::mainLoop() {
     m_running = true;
     m_lastTime = static_cast<float>(glfwGetTime());
     
     std::cout << "Starting main loop..." << std::endl;
     
-    while (m_running && !glfwWindowShouldClose(m_window)) {
-        glfwPollEvents();
-        
-        // Check if window should close
-        if (glfwWindowShouldClose(m_window)) {
-            std::cout << "Window should close" << std::endl;
-            break;
-        }
+    while (!window.shouldClose()) {
+        window.pollEvents();
         
         float currentTime = static_cast<float>(glfwGetTime());
         m_deltaTime = currentTime - m_lastTime;
@@ -122,46 +93,14 @@ void Application::drawFrame() {
 }
 
 void Application::update(float deltaTime) {
-    handleInput(deltaTime);
+    cameraObserver->updateDeltaTime(deltaTime);
     m_camera->update(deltaTime);
     m_scene->update(deltaTime);
 }
 
-void Application::handleInput(float deltaTime) {
-    // Camera movement
-    if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS) {
-        m_camera->moveForward(deltaTime);
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS) {
-        m_camera->moveBackward(deltaTime);
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS) {
-        m_camera->moveLeft(deltaTime);
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS) {
-        m_camera->moveRight(deltaTime);
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-        m_camera->moveUp(deltaTime);
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-        m_camera->moveDown(deltaTime);
-    }
-    
-    // Mouse look
-    double xpos, ypos;
-    glfwGetCursorPos(m_window, &xpos, &ypos);
-    m_camera->handleMouseMovement(static_cast<float>(xpos), static_cast<float>(ypos));
-}
 
 void Application::cleanup() {
     if (m_renderer) {
         m_renderer.reset();
     }
-    
-    if (m_window) {
-        glfwDestroyWindow(m_window);
-    }
-    
-    glfwTerminate();
 }

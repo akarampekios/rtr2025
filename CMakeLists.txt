@@ -39,6 +39,10 @@ include_directories(${Vulkan_INCLUDE_DIRS})
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 add_executable(CyberpunkCityDemo ${SOURCES})
 
+# Precompiled headers with common dependencies
+file(GLOB_RECURSE PRECOMPILED_HEADERS "include/pch/*.hpp")
+target_precompile_headers(CyberpunkCityDemo PRIVATE ${PRECOMPILED_HEADERS})
+
 # Link libraries
 target_link_libraries(CyberpunkCityDemo PRIVATE glfw Vulkan::Vulkan)
 

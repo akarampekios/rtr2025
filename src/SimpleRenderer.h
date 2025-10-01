@@ -9,6 +9,10 @@
 #include <glm/gtc/matrix_inverse.hpp>
 #include "GLTFLoader.h"
 
+#include "rhi/window.hpp"
+#include "rhi/instance.hpp"
+#include "rhi/physical_device.hpp"
+
 class Camera;
 class Scene;
 
@@ -40,7 +44,7 @@ struct AccelerationStructure {
 
 class SimpleRenderer {
 public:
-    SimpleRenderer(GLFWwindow* window);
+    SimpleRenderer(RHI::Window* window);
     ~SimpleRenderer();
 
     void beginFrame();
@@ -77,7 +81,6 @@ private:
     void updateLightingBuffer(uint32_t currentImage);
     
     bool isDeviceSuitable(VkPhysicalDevice device);
-    bool checkDeviceExtensionSupport(VkPhysicalDevice device);
     bool findQueueFamilies(VkPhysicalDevice device, uint32_t& graphicsFamily, uint32_t& presentFamily);
     void loadRayTracingFunctions();
     void createAccelerationStructures();
@@ -98,7 +101,11 @@ private:
     
     VkInstance m_instance;
     VkSurfaceKHR m_surface;
+    std::unique_ptr<RHI::Instance> instance = nullptr;
+
     VkPhysicalDevice m_physicalDevice;
+    std::unique_ptr<RHI::PhysicalDevice> physicalDevice = nullptr;
+
     VkDevice m_device;
     VkQueue m_graphicsQueue;
     VkQueue m_presentQueue;
@@ -144,7 +151,7 @@ private:
     uint32_t m_currentFrame;
     uint32_t m_imageIndex;
     
-    GLFWwindow* m_window;
+    RHI::Window* m_window = nullptr;
     
     uint32_t m_graphicsQueueFamilyIndex;
     uint32_t m_presentQueueFamilyIndex;
