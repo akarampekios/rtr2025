@@ -5,13 +5,7 @@
 #include "GLTFLoader.h"
 
 #include <vulkan/vulkan.h>
-#if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#include <vulkan/vulkan_win32.h>
-#endif
+
 
 #include <array>
 #include <chrono>
@@ -22,16 +16,11 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <ranges>
 
 namespace {
 
-const std::vector<const char*> kRequiredInstanceExtensions = {
-#if defined(_WIN32)
-    VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
-#endif
-    VK_KHR_SURFACE_EXTENSION_NAME,
-    VK_EXT_DEBUG_UTILS_EXTENSION_NAME
-};
+const std::vector kRequiredValidationLayers = {"VK_LAYER_KHRONOS_validation"};
 
 const std::vector<const char*> kRequiredDeviceExtensions = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -73,54 +62,52 @@ const char* layoutToString(VkImageLayout layout) {
 }
 } // namespace
 
-bool SimpleRenderer::checkDeviceExtensionSupport(VkPhysicalDevice device) {
-    uint32_t extensionCount = 0;
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
-    std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-    vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+bool SimpleRenderer::checkDeviceExtensionSupport(const vk::raii::PhysicalDevice& device) {
+    const auto deviceProperties = device.getProperties();
+    auto availableExtensions = device.enumerateDeviceExtensionProperties();
 
-    std::set<std::string> requiredExtensions(kRequiredDeviceExtensions.begin(), kRequiredDeviceExtensions.end());
-    for (const auto& ext : availableExtensions) {
-        requiredExtensions.erase(ext.extensionName);
+    for (const auto& requiredExtName : kRequiredDeviceExtensions) {
+        auto matcher = [&](const vk::ExtensionProperties& extension) {
+            return std::string(extension.extensionName.data()) == std::string(requiredExtName);
+        };
+
+        if (!std::ranges::any_of(availableExtensions, matcher)) {
+            std::cout << std::format(
+                "Extension {} not found on device {}\n",
+                std::string(requiredExtName),
+                std::string(deviceProperties.deviceName.data()));
+            return false;
+        }
     }
 
-    return requiredExtensions.empty();
+    return true;
 }
 
-bool SimpleRenderer::findQueueFamilies(VkPhysicalDevice device, uint32_t& graphicsFamily, uint32_t& presentFamily) {
+bool SimpleRenderer::findQueueFamilies(const vk::raii::PhysicalDevice& device, uint32_t& graphicsFamily, uint32_t& presentFamily) {
     graphicsFamily = UINT32_MAX;
     presentFamily = UINT32_MAX;
 
-    uint32_t queueFamilyCount = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
-    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+    auto queueFamilies = device.getQueueFamilyProperties();
 
-    for (uint32_t i = 0; i < queueFamilyCount; ++i) {
+    for (std::uint32_t i = 0; i < queueFamilies.size(); ++i) {
         const auto& queueFamily = queueFamilies[i];
-        if ((queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) && graphicsFamily == UINT32_MAX) {
+
+        if ((queueFamily.queueFlags & vk::QueueFlagBits::eGraphics) && graphicsFamily == UINT32_MAX) {
             graphicsFamily = i;
         }
 
-        VkBool32 presentSupport = VK_FALSE;
-        if (m_surface != VK_NULL_HANDLE) {
-            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, m_surface, &presentSupport);
-        }
-        if (presentSupport && presentFamily == UINT32_MAX) {
+        if (device.getSurfaceSupportKHR(i, *m_surface)) {
             presentFamily = i;
-        }
-
-        if (graphicsFamily != UINT32_MAX && presentFamily != UINT32_MAX) {
-            return true;
         }
     }
 
-    return false;
+    return graphicsFamily != UINT32_MAX && presentFamily != UINT32_MAX;\
 }
 
-bool SimpleRenderer::isDeviceSuitable(VkPhysicalDevice device) {
+bool SimpleRenderer::isDeviceSuitable(const vk::raii::PhysicalDevice& device) {
     uint32_t graphicsFamily = UINT32_MAX;
     uint32_t presentFamily = UINT32_MAX;
+
     if (!findQueueFamilies(device, graphicsFamily, presentFamily)) {
         return false;
     }
@@ -143,7 +130,7 @@ bool SimpleRenderer::isDeviceSuitable(VkPhysicalDevice device) {
     VkPhysicalDeviceFeatures2 deviceFeatures2{};
     deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     deviceFeatures2.pNext = &bufferAddressFeatures;
-    vkGetPhysicalDeviceFeatures2(device, &deviceFeatures2);
+    vkGetPhysicalDeviceFeatures2(*device, &deviceFeatures2);
 
     return bufferAddressFeatures.bufferDeviceAddress == VK_TRUE &&
            accelFeatures.accelerationStructure == VK_TRUE &&
@@ -226,8 +213,6 @@ SimpleRenderer::~SimpleRenderer() {
     
     vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
     vkDestroyDevice(m_device, nullptr);
-    vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-    vkDestroyInstance(m_instance, nullptr);
 }
 
 void SimpleRenderer::initVulkan() {
@@ -253,56 +238,48 @@ void SimpleRenderer::initVulkan() {
 }
 
 void SimpleRenderer::createInstance() {
-    VkApplicationInfo appInfo{};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    appInfo.pApplicationName = "Cyberpunk City Demo";
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "No Engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
-    
-    VkInstanceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pApplicationInfo = &appInfo;
-    
-    std::vector<const char*> extensions;
-    uint32_t glfwExtensionCount = 0;
-    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-    extensions.assign(glfwExtensions, glfwExtensions + glfwExtensionCount);
-    for (const char* required : kRequiredInstanceExtensions) {
-        if (std::find(extensions.begin(), extensions.end(), required) == extensions.end()) {
-            extensions.push_back(required);
-        }
-    }
+    vk::ApplicationInfo appInfo {
+        .pApplicationName = "Cyberpunk City Demo",
+        .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+        .pEngineName = "No Engine",
+        .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+        .apiVersion = VK_API_VERSION_1_4,
+    };
 
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
-    createInfo.ppEnabledExtensionNames = extensions.data();
-    createInfo.enabledLayerCount = 0;
-    
-    if (vkCreateInstance(&createInfo, nullptr, &m_instance) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create instance!");
-    }
+    uint32_t glfwExtensionCount = 0;
+    auto* const glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+    std::vector const requiredInstanceExtensions(glfwExtensions,glfwExtensions + glfwExtensionCount);
+
+    const vk::InstanceCreateInfo createInfo {
+        .pApplicationInfo = &appInfo,
+        .enabledLayerCount = static_cast<uint32_t>(kRequiredValidationLayers.size()),
+        .ppEnabledLayerNames = kRequiredValidationLayers.data(),
+        .enabledExtensionCount = glfwExtensionCount,
+        .ppEnabledExtensionNames = requiredInstanceExtensions.data(),
+    };
+
+    m_instance = vk::raii::Instance(m_context, createInfo);
 }
 
 void SimpleRenderer::createSurface() {
-    if (glfwCreateWindowSurface(m_instance, m_window, nullptr, &m_surface) != VK_SUCCESS) {
+    VkSurfaceKHR _surface = nullptr;
+
+    if (glfwCreateWindowSurface(*m_instance, m_window, nullptr, &_surface) != 0) {
         throw std::runtime_error("failed to create window surface!");
     }
+
+    m_surface = vk::raii::SurfaceKHR(m_instance, _surface);
 }
 
 void SimpleRenderer::pickPhysicalDevice() {
-    uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
+    auto physicalDevices = m_instance.enumeratePhysicalDevices();
     
-    if (deviceCount == 0) {
+    if (physicalDevices.empty()) {
         throw std::runtime_error("failed to find GPUs with Vulkan support!");
     }
-    
-    std::vector<VkPhysicalDevice> devices(deviceCount);
-    vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
-    
+
     m_physicalDevice = VK_NULL_HANDLE;
-    for (const auto& device : devices) {
+    for (const auto& device : physicalDevices) {
         if (isDeviceSuitable(device)) {
             m_physicalDevice = device;
             break;
@@ -370,7 +347,7 @@ void SimpleRenderer::createLogicalDevice() {
     createInfo.ppEnabledExtensionNames = kRequiredDeviceExtensions.data();
     createInfo.enabledLayerCount = 0;
 
-    if (vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS) {
+    if (vkCreateDevice(*m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS) {
         throw std::runtime_error("failed to create logical device!");
     }
 
@@ -380,12 +357,12 @@ void SimpleRenderer::createLogicalDevice() {
 
 void SimpleRenderer::createSwapChain() {
     VkSurfaceCapabilitiesKHR capabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, &capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(*m_physicalDevice, *m_surface, &capabilities);
 
     uint32_t formatCount;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, &formatCount, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(*m_physicalDevice, *m_surface, &formatCount, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, &formatCount, formats.data());
+    vkGetPhysicalDeviceSurfaceFormatsKHR(*m_physicalDevice, *m_surface, &formatCount, formats.data());
     VkSurfaceFormatKHR surfaceFormat = formats[0];
     for (const auto& candidate : formats) {
         if (candidate.format == VK_FORMAT_B8G8R8A8_SRGB && candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
@@ -395,9 +372,9 @@ void SimpleRenderer::createSwapChain() {
     }
 
     uint32_t presentModeCount;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, m_surface, &presentModeCount, nullptr);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(*m_physicalDevice, *m_surface, &presentModeCount, nullptr);
     std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, m_surface, &presentModeCount, presentModes.data());
+    vkGetPhysicalDeviceSurfacePresentModesKHR(*m_physicalDevice, *m_surface, &presentModeCount, presentModes.data());
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
     if (std::find(presentModes.begin(), presentModes.end(), VK_PRESENT_MODE_MAILBOX_KHR) != presentModes.end()) {
         presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
@@ -416,7 +393,7 @@ void SimpleRenderer::createSwapChain() {
 
     VkSwapchainCreateInfoKHR createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface = m_surface;
+    createInfo.surface = *m_surface;
     createInfo.minImageCount = imageCount;
     createInfo.imageFormat = surfaceFormat.format;
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -965,8 +942,8 @@ void SimpleRenderer::createIndexBufferFromData(const std::vector<uint32_t>& indi
 
 void SimpleRenderer::createGraphicsPipeline() {
     // Load shader modules
-    VkShaderModule vertShaderModule = ShaderManager::loadShader(m_device, "vert.spv");
-    VkShaderModule fragShaderModule = ShaderManager::loadShader(m_device, "frag.spv");
+    VkShaderModule vertShaderModule = ShaderManager::loadShader(m_device, "vert.vert.spv");
+    VkShaderModule fragShaderModule = ShaderManager::loadShader(m_device, "frag.frag.spv");
     
     VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1326,7 +1303,7 @@ void SimpleRenderer::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
 
 uint32_t SimpleRenderer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
+    vkGetPhysicalDeviceMemoryProperties(*m_physicalDevice, &memProperties);
     
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
         if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -1813,7 +1790,7 @@ void SimpleRenderer::createRayTracingPipeline() {
     m_rtProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
     properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     properties.pNext = &m_rtProperties;
-    vkGetPhysicalDeviceProperties2(m_physicalDevice, &properties);
+    vkGetPhysicalDeviceProperties2(*m_physicalDevice, &properties);
 
     VkDeviceSize handleSize = m_rtProperties.shaderGroupHandleSize;
     VkDeviceSize handleSizeAligned = (handleSize + m_rtProperties.shaderGroupHandleAlignment - 1) & ~(m_rtProperties.shaderGroupHandleAlignment - 1);

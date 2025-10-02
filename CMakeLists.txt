@@ -39,6 +39,9 @@ include_directories(${Vulkan_INCLUDE_DIRS})
 file(GLOB_RECURSE SOURCES "src/*.cpp")
 add_executable(CyberpunkCityDemo ${SOURCES})
 
+file(GLOB_RECURSE PRECOMPILED_HEADERS "include/pch/*.hpp")
+target_precompile_headers(CyberpunkCityDemo PRIVATE ${PRECOMPILED_HEADERS})
+
 # Link libraries
 target_link_libraries(CyberpunkCityDemo PRIVATE glfw Vulkan::Vulkan)
 
@@ -61,25 +64,32 @@ else()
     target_compile_options(CyberpunkCityDemo PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Copy shaders to output directory
-file(COPY ${CMAKE_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR}/bin)
+# Copy assets to output directory
 file(COPY ${CMAKE_SOURCE_DIR}/assets DESTINATION ${CMAKE_BINARY_DIR}/bin)
 
-list(APPEND RAY_TRACING_SHADERS
-    shaders/ray_gen.rgen
-    shaders/miss.rmiss
-    shaders/closest_hit.rchit
-)
+file(GLOB SHADER_FILES CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.rchit"
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.rmiss"
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/*.rgen")
 
-foreach(shader ${RAY_TRACING_SHADERS})
-    get_filename_component(FILE_NAME ${shader} NAME)
-    set(SPIRV_FILE ${CMAKE_BINARY_DIR}/bin/shaders/${FILE_NAME}.spv)
+foreach(SHADER_FILE ${SHADER_FILES})
+    get_filename_component(SHADER_NAME ${SHADER_FILE} NAME)
+    get_filename_component(FILE_EXTENSION ${SHADER_FILE} EXT)
+    string(SUBSTRING ${FILE_EXTENSION} 1 -1 FILE_EXTENSION_WITHOUT_DOT)
+
+    set(SPIRV_FILE ${CMAKE_BINARY_DIR}/bin/shaders/${SHADER_NAME}.spv)
+
     add_custom_command(
         OUTPUT ${SPIRV_FILE}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/bin/shaders
-        COMMAND ${Vulkan_GLSLC_EXECUTABLE} --target-env=vulkan1.2 ${CMAKE_CURRENT_SOURCE_DIR}/${shader} -o ${SPIRV_FILE}
-        MAIN_DEPENDENCY ${CMAKE_CURRENT_SOURCE_DIR}/${shader}
+        COMMAND ${Vulkan_GLSLC_EXECUTABLE} --target-env=vulkan1.4
+                -fshader-stage=${FILE_EXTENSION_WITHOUT_DOT}
+                ${SHADER_FILE} -o ${SPIRV_FILE}
+        DEPENDS ${SHADER_FILE}
         COMMENT "Compiling ${shader}"
+        VERBATIM
     )
     list(APPEND RAY_TRACING_SPV ${SPIRV_FILE})
 endforeach()
@@ -88,8 +98,8 @@ add_custom_target(CompileRayTracingShaders ALL DEPENDS ${RAY_TRACING_SPV})
 add_dependencies(CyberpunkCityDemo CompileRayTracingShaders)
 
 # Copy ray tracing SPIR-V files to the executable directory
-add_custom_command(TARGET CyberpunkCityDemo POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:CyberpunkCityDemo>/shaders
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RAY_TRACING_SPV} $<TARGET_FILE_DIR:CyberpunkCityDemo>/shaders)
+#add_custom_command(TARGET CyberpunkCityDemo POST_BUILD
+#    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:CyberpunkCityDemo>/shaders
+#    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RAY_TRACING_SPV} $<TARGET_FILE_DIR:CyberpunkCityDemo>/shaders)
 
 install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/shaders DESTINATION .)
