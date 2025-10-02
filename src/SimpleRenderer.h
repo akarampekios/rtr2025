@@ -3,7 +3,6 @@
 #include <memory>
 #include <vector>
 #include <cstdint>
-#include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -76,9 +75,9 @@ private:
     void updateUniformBuffer(uint32_t currentImage, Camera* camera);
     void updateLightingBuffer(uint32_t currentImage);
     
-    bool isDeviceSuitable(VkPhysicalDevice device);
-    bool checkDeviceExtensionSupport(VkPhysicalDevice device);
-    bool findQueueFamilies(VkPhysicalDevice device, uint32_t& graphicsFamily, uint32_t& presentFamily);
+    bool isDeviceSuitable(const vk::raii::PhysicalDevice& device);
+    static bool checkDeviceExtensionSupport(const vk::raii::PhysicalDevice& device);
+    bool findQueueFamilies(const vk::raii::PhysicalDevice& device, uint32_t& graphicsFamily, uint32_t& presentFamily);
     void loadRayTracingFunctions();
     void createAccelerationStructures();
     void cleanupAccelerationStructures();
@@ -96,9 +95,10 @@ private:
     VkDeviceAddress getBufferDeviceAddress(VkBuffer buffer) const;
     void transitionImageLayout(VkImage image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage, VkAccessFlags srcAccess, VkAccessFlags dstAccess);
     
-    VkInstance m_instance;
-    VkSurfaceKHR m_surface;
-    VkPhysicalDevice m_physicalDevice;
+    vk::raii::Context m_context;
+    vk::raii::Instance m_instance = nullptr;
+    vk::raii::SurfaceKHR m_surface = nullptr;
+    vk::raii::PhysicalDevice m_physicalDevice = nullptr;
     VkDevice m_device;
     VkQueue m_graphicsQueue;
     VkQueue m_presentQueue;

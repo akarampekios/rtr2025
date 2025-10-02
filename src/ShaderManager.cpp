@@ -5,22 +5,27 @@
 #include <filesystem>
 
 std::vector<char> ShaderManager::readFile(const std::string& filename) {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+    std::ifstream file(filename, std::ios::in | std::ios::ate | std::ios::binary);
+
     if (!file.is_open()) {
         throw std::runtime_error("failed to open file: " + filename);
     }
 
-    size_t fileSize = static_cast<size_t>(file.tellg());
+    std::streamsize const fileSize = static_cast<std::streamsize>(file.tellg());
     std::vector<char> buffer(fileSize);
-    file.seekg(0);
+
+    file.seekg(0, std::ios::beg);
     file.read(buffer.data(), fileSize);
+
+    file.close();
+
     return buffer;
 }
 
 VkShaderModule ShaderManager::createShaderModule(VkDevice device, const std::vector<char>& code) {
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    createInfo.codeSize = code.size();
+    createInfo.codeSize = code.size() * sizeof(char);
     createInfo.pCode = reinterpret_cast<const uint32_t*>(code.data());
 
     VkShaderModule shaderModule;
