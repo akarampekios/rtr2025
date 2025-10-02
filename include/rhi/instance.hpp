@@ -3,13 +3,14 @@
 #include <vector>
 #include <string>
 #include <string_view>
+#include <iostream>
 #include <cstdint>
 
 #include "rhi/exception.hpp"
 #include "utils/string_utils.hpp"
 
 namespace RHI {
-VKAPI_ATTR auto VKAPI_CALL
+inline VKAPI_ATTR auto VKAPI_CALL
 instanceDebugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT /*severity*/,
               const vk::DebugUtilsMessageTypeFlagsEXT type,
               const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData,

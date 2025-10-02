@@ -7,6 +7,8 @@
 #include "rhi/structs.hpp"
 #include "rhi/instance.hpp"
 #include "rhi/physical_device.hpp"
+#include "rhi/logical_device.hpp"
+#include "utils/string_utils.hpp"
 
 // #if defined(_WIN32)
 // #ifndef NOMINMAX
@@ -26,16 +28,17 @@
 #include <vector>
 #include <algorithm>
 
-static const std::vector<std::string> PHYSICAL_DEVICE_EXTENSIONS = {
-  VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-  VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME,
-  VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME,
-  VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
-  VK_KHR_PIPELINE_LIBRARY_EXTENSION_NAME,
-  VK_KHR_SPIRV_1_4_EXTENSION_NAME,
-  VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
-  VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME,
-  VK_KHR_MAINTENANCE3_EXTENSION_NAME
+static const std::vector<std::string> DEVICE_EXTENSIONS = {
+   vk::KHRSwapchainExtensionName,
+  vk::KHRSynchronization2ExtensionName,
+  vk::KHRAccelerationStructureExtensionName,
+  vk::KHRRayTracingPipelineExtensionName,
+  vk::KHRDeferredHostOperationsExtensionName,
+  vk::KHRPipelineLibraryExtensionName,
+  vk::KHRSpirv14ExtensionName,
+  vk::KHRBufferDeviceAddressExtensionName,
+  vk::KHRShaderFloatControlsExtensionName,
+  vk::KHRRayQueryExtensionName,
 };
 
 static const std::vector DEVICE_QUEUE_TYPES = {
@@ -43,6 +46,14 @@ static const std::vector DEVICE_QUEUE_TYPES = {
   RHI::QueueType::PRESENTATION,
   RHI::QueueType::TRANSFER,
   RHI::QueueType::COMPUTE,
+};
+
+static const std::vector DEVICE_FEATURES = {
+  RHI::LogicalDeviceFeature::DYNAMIC_RENDERING,
+  RHI::LogicalDeviceFeature::EXTENDED_DYNAMIC_STATE,
+  RHI::LogicalDeviceFeature::SYNCHRONIZATION_2,
+  RHI::LogicalDeviceFeature::SAMPLER_ANISOTROPY,
+  RHI::LogicalDeviceFeature::RAY_TRACING,
 };
 
 
@@ -109,7 +120,7 @@ VkDeviceAddress SimpleRenderer::getBufferDeviceAddress(VkBuffer buffer) const {
     VkBufferDeviceAddressInfo addressInfo{};
     addressInfo.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
     addressInfo.buffer = buffer;
-    return vkGetBufferDeviceAddress(m_device, &addressInfo);
+    return vkGetBufferDeviceAddress(*logicalDevice->vkGetLogicalDevice(), &addressInfo);
 }
 
 SimpleRenderer::SimpleRenderer(RHI::Window* window)
@@ -144,43 +155,44 @@ SimpleRenderer::~SimpleRenderer() {
     cleanupRayTracingPipeline();
     cleanupRayTracingStorageImage();
     cleanupAccelerationStructures();
+
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        vkDestroySemaphore(m_device, m_renderFinishedSemaphores[i], nullptr);
-        vkDestroySemaphore(m_device, m_imageAvailableSemaphores[i], nullptr);
-        vkDestroyFence(m_device, m_inFlightFences[i], nullptr);
+        vkDestroySemaphore(*logicalDevice->vkGetLogicalDevice(), m_renderFinishedSemaphores[i], nullptr);
+        vkDestroySemaphore(*logicalDevice->vkGetLogicalDevice(), m_imageAvailableSemaphores[i], nullptr);
+        vkDestroyFence(*logicalDevice->vkGetLogicalDevice(), m_inFlightFences[i], nullptr);
     }
     
-    vkDestroyBuffer(m_device, m_vertexBuffer, nullptr);
-    vkFreeMemory(m_device, m_vertexBufferMemory, nullptr);
-    vkDestroyBuffer(m_device, m_indexBuffer, nullptr);
-    vkFreeMemory(m_device, m_indexBufferMemory, nullptr);
+    vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), m_vertexBuffer, nullptr);
+    vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), m_vertexBufferMemory, nullptr);
+    vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), m_indexBuffer, nullptr);
+    vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), m_indexBufferMemory, nullptr);
     
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        vkDestroyBuffer(m_device, m_uniformBuffers[i], nullptr);
-        vkFreeMemory(m_device, m_uniformBuffersMemory[i], nullptr);
-        vkDestroyBuffer(m_device, m_lightingBuffers[i], nullptr);
-        vkFreeMemory(m_device, m_lightingBuffersMemory[i], nullptr);
+        vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), m_uniformBuffers[i], nullptr);
+        vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), m_uniformBuffersMemory[i], nullptr);
+        vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), m_lightingBuffers[i], nullptr);
+        vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), m_lightingBuffersMemory[i], nullptr);
     }
     
-    vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
-    vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
-    vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
-    vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
+    vkDestroyDescriptorPool(*logicalDevice->vkGetLogicalDevice(), m_descriptorPool, nullptr);
+    vkDestroyDescriptorSetLayout(*logicalDevice->vkGetLogicalDevice(), m_descriptorSetLayout, nullptr);
+    vkDestroyPipeline(*logicalDevice->vkGetLogicalDevice(), m_graphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(*logicalDevice->vkGetLogicalDevice(), m_pipelineLayout, nullptr);
     
-    vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+    vkDestroyCommandPool(*logicalDevice->vkGetLogicalDevice(), m_commandPool, nullptr);
     
     for (auto framebuffer : m_swapChainFramebuffers) {
-        vkDestroyFramebuffer(m_device, framebuffer, nullptr);
+        vkDestroyFramebuffer(*logicalDevice->vkGetLogicalDevice(), framebuffer, nullptr);
     }
     
-    vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+    vkDestroyRenderPass(*logicalDevice->vkGetLogicalDevice(), m_renderPass, nullptr);
     
     for (auto imageView : m_swapChainImageViews) {
-        vkDestroyImageView(m_device, imageView, nullptr);
+        vkDestroyImageView(*logicalDevice->vkGetLogicalDevice(), imageView, nullptr);
     }
     
-    vkDestroySwapchainKHR(m_device, m_swapChain, nullptr);
-    vkDestroyDevice(m_device, nullptr);
+    vkDestroySwapchainKHR(*logicalDevice->vkGetLogicalDevice(), m_swapChain, nullptr);
+    // vkDestroyDevice(*logicalDevice->vkGetLogicalDevice(), nullptr);
 
     // NOTE these are handled by RAII now
     // vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
@@ -195,10 +207,14 @@ void SimpleRenderer::initVulkan() {
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+  std::cout << "images \n";
     // FIXME: switch to dynamic rendering
     createRenderPass();
+  std::cout << "pass \n";
     createDescriptorSetLayout();
+  std::cout << "dsl \n";
     createGraphicsPipeline();
+  std::cout << "frame buffers \n";
     createFramebuffers();
     createCommandPool();
     createCommandBuffers();
@@ -218,9 +234,6 @@ void SimpleRenderer::createInstance() {
     };
 
     instance = std::make_unique<RHI::Instance>(instanceSettings);
-
-    // FIXME: for backward compatibility, there is no need to mess with the raw vk pointer anymore
-    m_instance = *instance->vkGetInstance();
 }
 
 void SimpleRenderer::createSurface() {
@@ -230,7 +243,7 @@ void SimpleRenderer::createSurface() {
 
 void SimpleRenderer::pickPhysicalDevice() {
   RHI::PhysicalDevice::Requirements const physicalDeviceRequirements {
-    .requiredExtensions = PHYSICAL_DEVICE_EXTENSIONS,
+    .requiredExtensions = DEVICE_EXTENSIONS,
     .requiredQueueTypes = DEVICE_QUEUE_TYPES,
   };
 
@@ -241,83 +254,29 @@ void SimpleRenderer::pickPhysicalDevice() {
       *m_window
     )
   );
-
-  // FIXME: for backward compatibility, there is no need to mess with the raw vk pointer anymore
-  m_physicalDevice = *physicalDevice->vkGetPhysicalDevice();
 }
 
 void SimpleRenderer::createLogicalDevice() {
-    uint32_t graphicsFamily = 0;
-    uint32_t presentFamily = 0;
-    if (!findQueueFamilies(m_physicalDevice, graphicsFamily, presentFamily)) {
-        throw std::runtime_error("failed to find required queue families!");
-    }
+    RHI::LogicalDevice::Settings logicalDeviceSettings {
+      .deviceExtensions =DEVICE_EXTENSIONS,
+      .deviceFeatures = DEVICE_FEATURES,
+      .queueTypes = DEVICE_QUEUE_TYPES,
+    };
 
-    m_graphicsQueueFamilyIndex = graphicsFamily;
-    m_presentQueueFamilyIndex = presentFamily;
+    logicalDevice = std::make_unique<RHI::LogicalDevice>(logicalDeviceSettings, *physicalDevice);
 
-    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-    std::set<uint32_t> uniqueQueueFamilies = {graphicsFamily, presentFamily};
-    float queuePriority = 1.0f;
-    for (uint32_t queueFamily : uniqueQueueFamilies) {
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = queueFamily;
-        queueCreateInfo.queueCount = 1;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
-        queueCreateInfos.push_back(queueCreateInfo);
-    }
-
-    VkPhysicalDeviceFeatures deviceFeatures{};
-
-    VkPhysicalDeviceBufferDeviceAddressFeatures bufferAddressFeatures{};
-    bufferAddressFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
-    bufferAddressFeatures.bufferDeviceAddress = VK_TRUE;
-
-    VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexing{};
-    descriptorIndexing.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
-    descriptorIndexing.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-    descriptorIndexing.runtimeDescriptorArray = VK_TRUE;
-    descriptorIndexing.descriptorBindingPartiallyBound = VK_TRUE;
-    descriptorIndexing.descriptorBindingVariableDescriptorCount = VK_TRUE;
-    descriptorIndexing.pNext = &bufferAddressFeatures;
-
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR accelFeatures{};
-    accelFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
-    accelFeatures.accelerationStructure = VK_TRUE;
-    accelFeatures.pNext = &descriptorIndexing;
-
-    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures{};
-    rtPipelineFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
-    rtPipelineFeatures.rayTracingPipeline = VK_TRUE;
-    rtPipelineFeatures.pNext = &accelFeatures;
-
-    VkDeviceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.pNext = &rtPipelineFeatures;
-    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
-    createInfo.pQueueCreateInfos = queueCreateInfos.data();
-    createInfo.pEnabledFeatures = &deviceFeatures;
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(PHYSICAL_DEVICE_EXTENSIONS.size());
-    createInfo.ppEnabledExtensionNames = PHYSICAL_DEVICE_EXTENSIONS.data();
-    createInfo.enabledLayerCount = 0;
-
-    if (vkCreateDevice(m_physicalDevice, &createInfo, nullptr, &m_device) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create logical device!");
-    }
-
-    vkGetDeviceQueue(m_device, graphicsFamily, 0, &m_graphicsQueue);
-    vkGetDeviceQueue(m_device, presentFamily, 0, &m_presentQueue);
+    m_graphicsQueueFamilyIndex = logicalDevice->getQueue(RHI::QueueType::GRAPHICS).getFamilyIndex();
+    m_presentQueueFamilyIndex = logicalDevice->getQueue(RHI::QueueType::PRESENTATION).getFamilyIndex();
 }
 
 void SimpleRenderer::createSwapChain() {
     VkSurfaceCapabilitiesKHR capabilities;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_physicalDevice, m_surface, &capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(*physicalDevice->vkGetPhysicalDevice(), m_surface, &capabilities);
 
     uint32_t formatCount;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, &formatCount, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(*physicalDevice->vkGetPhysicalDevice(), m_surface, &formatCount, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    vkGetPhysicalDeviceSurfaceFormatsKHR(m_physicalDevice, m_surface, &formatCount, formats.data());
+    vkGetPhysicalDeviceSurfaceFormatsKHR(*physicalDevice->vkGetPhysicalDevice(), m_surface, &formatCount, formats.data());
     VkSurfaceFormatKHR surfaceFormat = formats[0];
     for (const auto& candidate : formats) {
         if (candidate.format == VK_FORMAT_B8G8R8A8_SRGB && candidate.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
@@ -327,9 +286,9 @@ void SimpleRenderer::createSwapChain() {
     }
 
     uint32_t presentModeCount;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, m_surface, &presentModeCount, nullptr);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(*physicalDevice->vkGetPhysicalDevice(), m_surface, &presentModeCount, nullptr);
     std::vector<VkPresentModeKHR> presentModes(presentModeCount);
-    vkGetPhysicalDeviceSurfacePresentModesKHR(m_physicalDevice, m_surface, &presentModeCount, presentModes.data());
+    vkGetPhysicalDeviceSurfacePresentModesKHR(*physicalDevice->vkGetPhysicalDevice(), m_surface, &presentModeCount, presentModes.data());
     VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
     if (std::find(presentModes.begin(), presentModes.end(), VK_PRESENT_MODE_MAILBOX_KHR) != presentModes.end()) {
         presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
@@ -371,13 +330,13 @@ void SimpleRenderer::createSwapChain() {
     createInfo.clipped = VK_TRUE;
     createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-    if (vkCreateSwapchainKHR(m_device, &createInfo, nullptr, &m_swapChain) != VK_SUCCESS) {
+    if (vkCreateSwapchainKHR(*logicalDevice->vkGetLogicalDevice(), &createInfo, nullptr, &m_swapChain) != VK_SUCCESS) {
         throw std::runtime_error("failed to create swap chain!");
     }
 
-    vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, nullptr);
+    vkGetSwapchainImagesKHR(*logicalDevice->vkGetLogicalDevice(), m_swapChain, &imageCount, nullptr);
     m_swapChainImages.resize(imageCount);
-    vkGetSwapchainImagesKHR(m_device, m_swapChain, &imageCount, m_swapChainImages.data());
+    vkGetSwapchainImagesKHR(*logicalDevice->vkGetLogicalDevice(), m_swapChain, &imageCount, m_swapChainImages.data());
 
     m_swapChainImageFormat = surfaceFormat.format;
     m_swapChainExtent = extent;
@@ -402,7 +361,7 @@ void SimpleRenderer::createImageViews() {
         createInfo.subresourceRange.baseArrayLayer = 0;
         createInfo.subresourceRange.layerCount = 1;
         
-        if (vkCreateImageView(m_device, &createInfo, nullptr, &m_swapChainImageViews[i]) != VK_SUCCESS) {
+        if (vkCreateImageView(*logicalDevice->vkGetLogicalDevice(), &createInfo, nullptr, &m_swapChainImageViews[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create image views!");
         }
     }
@@ -445,7 +404,7 @@ void SimpleRenderer::createRenderPass() {
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies = &dependency;
     
-    if (vkCreateRenderPass(m_device, &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS) {
+    if (vkCreateRenderPass(*logicalDevice->vkGetLogicalDevice(), &renderPassInfo, nullptr, &m_renderPass) != VK_SUCCESS) {
         throw std::runtime_error("failed to create render pass!");
     }
 }
@@ -467,7 +426,7 @@ void SimpleRenderer::createFramebuffers() {
         framebufferInfo.height = m_swapChainExtent.height;
         framebufferInfo.layers = 1;
         
-        if (vkCreateFramebuffer(m_device, &framebufferInfo, nullptr, &m_swapChainFramebuffers[i]) != VK_SUCCESS) {
+        if (vkCreateFramebuffer(*logicalDevice->vkGetLogicalDevice(), &framebufferInfo, nullptr, &m_swapChainFramebuffers[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create framebuffer!");
         }
     }
@@ -479,7 +438,7 @@ void SimpleRenderer::createCommandPool() {
     poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     poolInfo.queueFamilyIndex = 0; // Simplified
     
-    if (vkCreateCommandPool(m_device, &poolInfo, nullptr, &m_commandPool) != VK_SUCCESS) {
+    if (vkCreateCommandPool(*logicalDevice->vkGetLogicalDevice(), &poolInfo, nullptr, &m_commandPool) != VK_SUCCESS) {
         throw std::runtime_error("failed to create command pool!");
     }
 }
@@ -493,7 +452,7 @@ void SimpleRenderer::createCommandBuffers() {
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = static_cast<uint32_t>(m_commandBuffers.size());
     
-    if (vkAllocateCommandBuffers(m_device, &allocInfo, m_commandBuffers.data()) != VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(*logicalDevice->vkGetLogicalDevice(), &allocInfo, m_commandBuffers.data()) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate command buffers!");
     }
 }
@@ -511,24 +470,24 @@ void SimpleRenderer::createSyncObjects() {
     fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS ||
-            vkCreateFence(m_device, &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS) {
+        if (vkCreateSemaphore(*logicalDevice->vkGetLogicalDevice(), &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]) != VK_SUCCESS ||
+            vkCreateSemaphore(*logicalDevice->vkGetLogicalDevice(), &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]) != VK_SUCCESS ||
+            vkCreateFence(*logicalDevice->vkGetLogicalDevice(), &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS) {
             throw std::runtime_error("failed to create synchronization objects for a frame!");
         }
     }
 }
 
 void SimpleRenderer::beginFrame() {
-    vkWaitForFences(m_device, 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
+    vkWaitForFences(*logicalDevice->vkGetLogicalDevice(), 1, &m_inFlightFences[m_currentFrame], VK_TRUE, UINT64_MAX);
     
-    VkResult result = vkAcquireNextImageKHR(m_device, m_swapChain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &m_imageIndex);
+    VkResult result = vkAcquireNextImageKHR(*logicalDevice->vkGetLogicalDevice(), m_swapChain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrame], VK_NULL_HANDLE, &m_imageIndex);
     
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("failed to acquire swap chain image!");
     }
     
-    vkResetFences(m_device, 1, &m_inFlightFences[m_currentFrame]);
+    vkResetFences(*logicalDevice->vkGetLogicalDevice(), 1, &m_inFlightFences[m_currentFrame]);
 }
 
 void SimpleRenderer::render(Camera* camera, Scene* scene) {
@@ -813,9 +772,9 @@ void SimpleRenderer::createVertexBufferFromData(const std::vector<GLTFVertex>& v
     createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
     
     void* data;
-    vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
+    vkMapMemory(*logicalDevice->vkGetLogicalDevice(), stagingBufferMemory, 0, bufferSize, 0, &data);
     memcpy(data, vertices.data(), (size_t)bufferSize);
-    vkUnmapMemory(m_device, stagingBufferMemory);
+    vkUnmapMemory(*logicalDevice->vkGetLogicalDevice(), stagingBufferMemory);
     
     createBuffer(bufferSize,
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -826,8 +785,8 @@ void SimpleRenderer::createVertexBufferFromData(const std::vector<GLTFVertex>& v
     
     copyBuffer(stagingBuffer, m_vertexBuffer, bufferSize);
     
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+    vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), stagingBufferMemory, nullptr);
 }
 
 void SimpleRenderer::createIndexBuffer(const std::vector<uint32_t>& indices) {
@@ -878,9 +837,9 @@ void SimpleRenderer::createIndexBufferFromData(const std::vector<uint32_t>& indi
     createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
     
     void* data;
-    vkMapMemory(m_device, stagingBufferMemory, 0, bufferSize, 0, &data);
+    vkMapMemory(*logicalDevice->vkGetLogicalDevice(), stagingBufferMemory, 0, bufferSize, 0, &data);
     memcpy(data, indices.data(), (size_t)bufferSize);
-    vkUnmapMemory(m_device, stagingBufferMemory);
+    vkUnmapMemory(*logicalDevice->vkGetLogicalDevice(), stagingBufferMemory);
     
     createBuffer(bufferSize,
                  VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -891,14 +850,14 @@ void SimpleRenderer::createIndexBufferFromData(const std::vector<uint32_t>& indi
     
     copyBuffer(stagingBuffer, m_indexBuffer, bufferSize);
     
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingBufferMemory, nullptr);
+    vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), stagingBufferMemory, nullptr);
 }
 
 void SimpleRenderer::createGraphicsPipeline() {
     // Load shader modules
-    VkShaderModule vertShaderModule = ShaderManager::loadShader(m_device, "vert.spv");
-    VkShaderModule fragShaderModule = ShaderManager::loadShader(m_device, "frag.spv");
+    VkShaderModule vertShaderModule = ShaderManager::loadShader(*logicalDevice->vkGetLogicalDevice(), "vert.spv");
+    VkShaderModule fragShaderModule = ShaderManager::loadShader(*logicalDevice->vkGetLogicalDevice(), "frag.spv");
     
     VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -990,7 +949,7 @@ void SimpleRenderer::createGraphicsPipeline() {
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &m_descriptorSetLayout;
     
-    if (vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS) {
+    if (vkCreatePipelineLayout(*logicalDevice->vkGetLogicalDevice(), &pipelineLayoutInfo, nullptr, &m_pipelineLayout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create pipeline layout!");
     }
     
@@ -1010,13 +969,13 @@ void SimpleRenderer::createGraphicsPipeline() {
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     
-    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipeline) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(*logicalDevice->vkGetLogicalDevice(), VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipeline) != VK_SUCCESS) {
         throw std::runtime_error("failed to create graphics pipeline!");
     }
     
     // Clean up shader modules
-    vkDestroyShaderModule(m_device, fragShaderModule, nullptr);
-    vkDestroyShaderModule(m_device, vertShaderModule, nullptr);
+    vkDestroyShaderModule(*logicalDevice->vkGetLogicalDevice(), fragShaderModule, nullptr);
+    vkDestroyShaderModule(*logicalDevice->vkGetLogicalDevice(), vertShaderModule, nullptr);
 }
 
 void SimpleRenderer::createDescriptorSetLayout() {
@@ -1032,7 +991,7 @@ void SimpleRenderer::createDescriptorSetLayout() {
     layoutInfo.bindingCount = 1;
     layoutInfo.pBindings = &uboLayoutBinding;
     
-    if (vkCreateDescriptorSetLayout(m_device, &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
+    if (vkCreateDescriptorSetLayout(*logicalDevice->vkGetLogicalDevice(), &layoutInfo, nullptr, &m_descriptorSetLayout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create descriptor set layout!");
     }
 }
@@ -1047,7 +1006,7 @@ void SimpleRenderer::createUniformBuffers() {
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_uniformBuffers[i], m_uniformBuffersMemory[i]);
         
-        vkMapMemory(m_device, m_uniformBuffersMemory[i], 0, bufferSize, 0, &m_uniformBuffersMapped[i]);
+        vkMapMemory(*logicalDevice->vkGetLogicalDevice(), m_uniformBuffersMemory[i], 0, bufferSize, 0, &m_uniformBuffersMapped[i]);
     }
 }
 
@@ -1061,7 +1020,7 @@ void SimpleRenderer::createLightingBuffers() {
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_lightingBuffers[i], m_lightingBuffersMemory[i]);
         
-        vkMapMemory(m_device, m_lightingBuffersMemory[i], 0, bufferSize, 0, &m_lightingBuffersMapped[i]);
+        vkMapMemory(*logicalDevice->vkGetLogicalDevice(), m_lightingBuffersMemory[i], 0, bufferSize, 0, &m_lightingBuffersMapped[i]);
     }
 }
 
@@ -1076,7 +1035,7 @@ void SimpleRenderer::createDescriptorPool() {
     poolInfo.pPoolSizes = &poolSize;
     poolInfo.maxSets = static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT);
     
-    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
+    if (vkCreateDescriptorPool(*logicalDevice->vkGetLogicalDevice(), &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("failed to create descriptor pool!");
     }
 }
@@ -1090,7 +1049,7 @@ void SimpleRenderer::createDescriptorSets() {
     allocInfo.pSetLayouts = layouts.data();
     
     m_descriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-    if (vkAllocateDescriptorSets(m_device, &allocInfo, m_descriptorSets.data()) != VK_SUCCESS) {
+    if (vkAllocateDescriptorSets(*logicalDevice->vkGetLogicalDevice(), &allocInfo, m_descriptorSets.data()) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate descriptor sets!");
     }
     
@@ -1109,7 +1068,7 @@ void SimpleRenderer::createDescriptorSets() {
         descriptorWrite.descriptorCount = 1;
         descriptorWrite.pBufferInfo = &bufferInfo;
         
-        vkUpdateDescriptorSets(m_device, 1, &descriptorWrite, 0, nullptr);
+        vkUpdateDescriptorSets(*logicalDevice->vkGetLogicalDevice(), 1, &descriptorWrite, 0, nullptr);
     }
 }
 
@@ -1189,12 +1148,12 @@ void SimpleRenderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, V
     bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     
-    if (vkCreateBuffer(m_device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+    if (vkCreateBuffer(*logicalDevice->vkGetLogicalDevice(), &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
         throw std::runtime_error("failed to create buffer!");
     }
     
     VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(m_device, buffer, &memRequirements);
+    vkGetBufferMemoryRequirements(*logicalDevice->vkGetLogicalDevice(), buffer, &memRequirements);
     
     VkMemoryAllocateFlagsInfo allocateFlagsInfo{};
     allocateFlagsInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
@@ -1206,11 +1165,11 @@ void SimpleRenderer::createBuffer(VkDeviceSize size, VkBufferUsageFlags usage, V
     allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
     allocInfo.pNext = allocateFlags ? &allocateFlagsInfo : nullptr;
     
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS) {
+    if (vkAllocateMemory(*logicalDevice->vkGetLogicalDevice(), &allocInfo, nullptr, &bufferMemory) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate buffer memory!");
     }
     
-    vkBindBufferMemory(m_device, buffer, bufferMemory, 0);
+    vkBindBufferMemory(*logicalDevice->vkGetLogicalDevice(), buffer, bufferMemory, 0);
 }
 
 void SimpleRenderer::copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
@@ -1231,7 +1190,7 @@ VkCommandBuffer SimpleRenderer::beginSingleTimeCommands() {
     allocInfo.commandBufferCount = 1;
     
     VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(m_device, &allocInfo, &commandBuffer);
+    vkAllocateCommandBuffers(*logicalDevice->vkGetLogicalDevice(), &allocInfo, &commandBuffer);
     
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1253,12 +1212,12 @@ void SimpleRenderer::endSingleTimeCommands(VkCommandBuffer commandBuffer) {
     vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
     vkQueueWaitIdle(m_graphicsQueue);
     
-    vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
+    vkFreeCommandBuffers(*logicalDevice->vkGetLogicalDevice(), m_commandPool, 1, &commandBuffer);
 }
 
 uint32_t SimpleRenderer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
     VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
+    vkGetPhysicalDeviceMemoryProperties(*physicalDevice->vkGetPhysicalDevice(), &memProperties);
     
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
         if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
@@ -1270,14 +1229,14 @@ uint32_t SimpleRenderer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFla
 }
 
 void SimpleRenderer::loadRayTracingFunctions() {
-    m_vkCreateAccelerationStructureKHR = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(vkGetDeviceProcAddr(m_device, "vkCreateAccelerationStructureKHR"));
-    m_vkDestroyAccelerationStructureKHR = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(vkGetDeviceProcAddr(m_device, "vkDestroyAccelerationStructureKHR"));
-    m_vkGetAccelerationStructureDeviceAddressKHR = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(m_device, "vkGetAccelerationStructureDeviceAddressKHR"));
-    m_vkCmdBuildAccelerationStructuresKHR = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(vkGetDeviceProcAddr(m_device, "vkCmdBuildAccelerationStructuresKHR"));
-    m_vkGetAccelerationStructureBuildSizesKHR = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(vkGetDeviceProcAddr(m_device, "vkGetAccelerationStructureBuildSizesKHR"));
-    m_vkCreateRayTracingPipelinesKHR = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(vkGetDeviceProcAddr(m_device, "vkCreateRayTracingPipelinesKHR"));
-    m_vkGetRayTracingShaderGroupHandlesKHR = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(m_device, "vkGetRayTracingShaderGroupHandlesKHR"));
-    m_vkCmdTraceRaysKHR = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(m_device, "vkCmdTraceRaysKHR"));
+    m_vkCreateAccelerationStructureKHR = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkCreateAccelerationStructureKHR"));
+    m_vkDestroyAccelerationStructureKHR = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkDestroyAccelerationStructureKHR"));
+    m_vkGetAccelerationStructureDeviceAddressKHR = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkGetAccelerationStructureDeviceAddressKHR"));
+    m_vkCmdBuildAccelerationStructuresKHR = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkCmdBuildAccelerationStructuresKHR"));
+    m_vkGetAccelerationStructureBuildSizesKHR = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkGetAccelerationStructureBuildSizesKHR"));
+    m_vkCreateRayTracingPipelinesKHR = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkCreateRayTracingPipelinesKHR"));
+    m_vkGetRayTracingShaderGroupHandlesKHR = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkGetRayTracingShaderGroupHandlesKHR"));
+    m_vkCmdTraceRaysKHR = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(*logicalDevice->vkGetLogicalDevice(), "vkCmdTraceRaysKHR"));
 
     if (!m_vkCreateAccelerationStructureKHR ||
         !m_vkDestroyAccelerationStructureKHR ||
@@ -1332,7 +1291,7 @@ void SimpleRenderer::createAccelerationStructures() {
     uint32_t primitiveCount = m_indexCount / 3;
     VkAccelerationStructureBuildSizesInfoKHR sizeInfo{};
     sizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-    m_vkGetAccelerationStructureBuildSizesKHR(m_device,
+    m_vkGetAccelerationStructureBuildSizesKHR(*logicalDevice->vkGetLogicalDevice(),
                                               VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                                               &buildInfo,
                                               &primitiveCount,
@@ -1351,7 +1310,7 @@ void SimpleRenderer::createAccelerationStructures() {
     accelCreateInfo.size = sizeInfo.accelerationStructureSize;
     accelCreateInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
 
-    if (m_vkCreateAccelerationStructureKHR(m_device, &accelCreateInfo, nullptr, &m_bottomLevelAS.handle) != VK_SUCCESS) {
+    if (m_vkCreateAccelerationStructureKHR(*logicalDevice->vkGetLogicalDevice(), &accelCreateInfo, nullptr, &m_bottomLevelAS.handle) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create bottom-level acceleration structure");
     }
 
@@ -1377,13 +1336,13 @@ void SimpleRenderer::createAccelerationStructures() {
     m_vkCmdBuildAccelerationStructuresKHR(commandBuffer, 1, &buildGeomInfo, &pRangeInfo);
     endSingleTimeCommands(commandBuffer);
 
-    vkDestroyBuffer(m_device, scratchBuffer, nullptr);
-    vkFreeMemory(m_device, scratchMemory, nullptr);
+    vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), scratchBuffer, nullptr);
+    vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), scratchMemory, nullptr);
 
     VkAccelerationStructureDeviceAddressInfoKHR addressInfo{};
     addressInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
     addressInfo.accelerationStructure = m_bottomLevelAS.handle;
-    m_bottomLevelAS.deviceAddress = m_vkGetAccelerationStructureDeviceAddressKHR(m_device, &addressInfo);
+    m_bottomLevelAS.deviceAddress = m_vkGetAccelerationStructureDeviceAddressKHR(*logicalDevice->vkGetLogicalDevice(), &addressInfo);
 
     struct InstanceData {
         VkTransformMatrixKHR transform;
@@ -1411,9 +1370,9 @@ void SimpleRenderer::createAccelerationStructures() {
                  VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT);
 
     void* mapped = nullptr;
-    vkMapMemory(m_device, m_instancesMemory, 0, instanceBufferSize, 0, &mapped);
+    vkMapMemory(*logicalDevice->vkGetLogicalDevice(), m_instancesMemory, 0, instanceBufferSize, 0, &mapped);
     std::memcpy(mapped, &instance, sizeof(InstanceData));
-    vkUnmapMemory(m_device, m_instancesMemory);
+    vkUnmapMemory(*logicalDevice->vkGetLogicalDevice(), m_instancesMemory);
 
     VkAccelerationStructureGeometryInstancesDataKHR instancesData{};
     instancesData.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
@@ -1435,7 +1394,7 @@ void SimpleRenderer::createAccelerationStructures() {
     uint32_t instanceCount = 1;
     VkAccelerationStructureBuildSizesInfoKHR topSizeInfo{};
     topSizeInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-    m_vkGetAccelerationStructureBuildSizesKHR(m_device,
+    m_vkGetAccelerationStructureBuildSizesKHR(*logicalDevice->vkGetLogicalDevice(),
                                               VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                                               &topBuildInfo,
                                               &instanceCount,
@@ -1454,7 +1413,7 @@ void SimpleRenderer::createAccelerationStructures() {
     topCreateInfo.size = topSizeInfo.accelerationStructureSize;
     topCreateInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
 
-    if (m_vkCreateAccelerationStructureKHR(m_device, &topCreateInfo, nullptr, &m_topLevelAS.handle) != VK_SUCCESS) {
+    if (m_vkCreateAccelerationStructureKHR(*logicalDevice->vkGetLogicalDevice(), &topCreateInfo, nullptr, &m_topLevelAS.handle) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create top-level acceleration structure");
     }
 
@@ -1480,13 +1439,13 @@ void SimpleRenderer::createAccelerationStructures() {
     m_vkCmdBuildAccelerationStructuresKHR(topCommandBuffer, 1, &topBuildGeomInfo, &pTopRangeInfo);
     endSingleTimeCommands(topCommandBuffer);
 
-    vkDestroyBuffer(m_device, topScratchBuffer, nullptr);
-    vkFreeMemory(m_device, topScratchMemory, nullptr);
+    vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), topScratchBuffer, nullptr);
+    vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), topScratchMemory, nullptr);
 
     VkAccelerationStructureDeviceAddressInfoKHR topAddressInfo{};
     topAddressInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
     topAddressInfo.accelerationStructure = m_topLevelAS.handle;
-    m_topLevelAS.deviceAddress = m_vkGetAccelerationStructureDeviceAddressKHR(m_device, &topAddressInfo);
+    m_topLevelAS.deviceAddress = m_vkGetAccelerationStructureDeviceAddressKHR(*logicalDevice->vkGetLogicalDevice(), &topAddressInfo);
 
     std::cout << "[RT] Acceleration structures built, creating pipeline" << std::endl;
 
@@ -1510,7 +1469,7 @@ void SimpleRenderer::createRayTracingStorageImage() {
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(m_device, &imageInfo, nullptr, &m_rtStorageImage) != VK_SUCCESS) {
+    if (vkCreateImage(*logicalDevice->vkGetLogicalDevice(), &imageInfo, nullptr, &m_rtStorageImage) != VK_SUCCESS) {
         throw std::runtime_error("failed to create ray tracing storage image");
     }
 
@@ -1519,18 +1478,18 @@ void SimpleRenderer::createRayTracingStorageImage() {
               << " format " << imageInfo.format << std::endl;
 
     VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(m_device, m_rtStorageImage, &memRequirements);
+    vkGetImageMemoryRequirements(*logicalDevice->vkGetLogicalDevice(), m_rtStorageImage, &memRequirements);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    if (vkAllocateMemory(m_device, &allocInfo, nullptr, &m_rtStorageMemory) != VK_SUCCESS) {
+    if (vkAllocateMemory(*logicalDevice->vkGetLogicalDevice(), &allocInfo, nullptr, &m_rtStorageMemory) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate ray tracing storage memory");
     }
 
-    vkBindImageMemory(m_device, m_rtStorageImage, m_rtStorageMemory, 0);
+    vkBindImageMemory(*logicalDevice->vkGetLogicalDevice(), m_rtStorageImage, m_rtStorageMemory, 0);
 
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1543,7 +1502,7 @@ void SimpleRenderer::createRayTracingStorageImage() {
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 1;
 
-    if (vkCreateImageView(m_device, &viewInfo, nullptr, &m_rtStorageImageView) != VK_SUCCESS) {
+    if (vkCreateImageView(*logicalDevice->vkGetLogicalDevice(), &viewInfo, nullptr, &m_rtStorageImageView) != VK_SUCCESS) {
         throw std::runtime_error("failed to create ray tracing storage image view");
     }
 
@@ -1573,40 +1532,40 @@ void SimpleRenderer::createRayTracingStorageImage() {
 
 void SimpleRenderer::cleanupRayTracingStorageImage() {
     if (m_rtStorageImageView != VK_NULL_HANDLE) {
-        vkDestroyImageView(m_device, m_rtStorageImageView, nullptr);
+        vkDestroyImageView(*logicalDevice->vkGetLogicalDevice(), m_rtStorageImageView, nullptr);
         m_rtStorageImageView = VK_NULL_HANDLE;
     }
     if (m_rtStorageImage != VK_NULL_HANDLE) {
-        vkDestroyImage(m_device, m_rtStorageImage, nullptr);
+        vkDestroyImage(*logicalDevice->vkGetLogicalDevice(), m_rtStorageImage, nullptr);
         m_rtStorageImage = VK_NULL_HANDLE;
     }
     if (m_rtStorageMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device, m_rtStorageMemory, nullptr);
+        vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), m_rtStorageMemory, nullptr);
         m_rtStorageMemory = VK_NULL_HANDLE;
     }
 }
 
 void SimpleRenderer::cleanupAccelerationStructures() {
     if (m_instancesBuffer != VK_NULL_HANDLE) {
-        vkDestroyBuffer(m_device, m_instancesBuffer, nullptr);
+        vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), m_instancesBuffer, nullptr);
         m_instancesBuffer = VK_NULL_HANDLE;
     }
     if (m_instancesMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device, m_instancesMemory, nullptr);
+        vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), m_instancesMemory, nullptr);
         m_instancesMemory = VK_NULL_HANDLE;
     }
 
     auto destroyAS = [&](AccelerationStructure& as) {
         if (as.handle != VK_NULL_HANDLE) {
-            m_vkDestroyAccelerationStructureKHR(m_device, as.handle, nullptr);
+            m_vkDestroyAccelerationStructureKHR(*logicalDevice->vkGetLogicalDevice(), as.handle, nullptr);
             as.handle = VK_NULL_HANDLE;
         }
         if (as.buffer != VK_NULL_HANDLE) {
-            vkDestroyBuffer(m_device, as.buffer, nullptr);
+            vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), as.buffer, nullptr);
             as.buffer = VK_NULL_HANDLE;
         }
         if (as.memory != VK_NULL_HANDLE) {
-            vkFreeMemory(m_device, as.memory, nullptr);
+            vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), as.memory, nullptr);
             as.memory = VK_NULL_HANDLE;
         }
         as.deviceAddress = 0;
@@ -1626,9 +1585,9 @@ void SimpleRenderer::createRayTracingPipeline() {
     std::vector<char> missCode = ShaderManager::readFile("shaders/miss.rmiss.spv");
     std::vector<char> chitCode = ShaderManager::readFile("shaders/closest_hit.rchit.spv");
 
-    VkShaderModule rayGenModule = ShaderManager::createShaderModule(m_device, rayGenCode);
-    VkShaderModule missModule = ShaderManager::createShaderModule(m_device, missCode);
-    VkShaderModule chitModule = ShaderManager::createShaderModule(m_device, chitCode);
+    VkShaderModule rayGenModule = ShaderManager::createShaderModule(*logicalDevice->vkGetLogicalDevice(), rayGenCode);
+    VkShaderModule missModule = ShaderManager::createShaderModule(*logicalDevice->vkGetLogicalDevice(), missCode);
+    VkShaderModule chitModule = ShaderManager::createShaderModule(*logicalDevice->vkGetLogicalDevice(), chitCode);
 
     VkPipelineShaderStageCreateInfo raygenStage{};
     raygenStage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1712,7 +1671,7 @@ void SimpleRenderer::createRayTracingPipeline() {
     rtLayoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
     rtLayoutInfo.pBindings = bindings.data();
 
-    if (vkCreateDescriptorSetLayout(m_device, &rtLayoutInfo, nullptr, &m_rtDescriptorSetLayout) != VK_SUCCESS) {
+    if (vkCreateDescriptorSetLayout(*logicalDevice->vkGetLogicalDevice(), &rtLayoutInfo, nullptr, &m_rtDescriptorSetLayout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create ray tracing descriptor set layout");
     }
 
@@ -1721,7 +1680,7 @@ void SimpleRenderer::createRayTracingPipeline() {
     pipelineLayoutInfo.setLayoutCount = 1;
     pipelineLayoutInfo.pSetLayouts = &m_rtDescriptorSetLayout;
 
-    if (vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_rtPipelineLayout) != VK_SUCCESS) {
+    if (vkCreatePipelineLayout(*logicalDevice->vkGetLogicalDevice(), &pipelineLayoutInfo, nullptr, &m_rtPipelineLayout) != VK_SUCCESS) {
         throw std::runtime_error("failed to create ray tracing pipeline layout");
     }
 
@@ -1734,7 +1693,7 @@ void SimpleRenderer::createRayTracingPipeline() {
     pipelineInfo.maxPipelineRayRecursionDepth = 1;
     pipelineInfo.layout = m_rtPipelineLayout;
 
-    if (m_vkCreateRayTracingPipelinesKHR(m_device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_rtPipeline) != VK_SUCCESS) {
+    if (m_vkCreateRayTracingPipelinesKHR(*logicalDevice->vkGetLogicalDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_rtPipeline) != VK_SUCCESS) {
         throw std::runtime_error("failed to create ray tracing pipeline");
     }
 
@@ -1745,7 +1704,7 @@ void SimpleRenderer::createRayTracingPipeline() {
     m_rtProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
     properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
     properties.pNext = &m_rtProperties;
-    vkGetPhysicalDeviceProperties2(m_physicalDevice, &properties);
+    vkGetPhysicalDeviceProperties2(*physicalDevice->vkGetPhysicalDevice(), &properties);
 
     VkDeviceSize handleSize = m_rtProperties.shaderGroupHandleSize;
     VkDeviceSize handleSizeAligned = (handleSize + m_rtProperties.shaderGroupHandleAlignment - 1) & ~(m_rtProperties.shaderGroupHandleAlignment - 1);
@@ -1753,7 +1712,7 @@ void SimpleRenderer::createRayTracingPipeline() {
     VkDeviceSize sbtSize = groupCount * handleSizeAligned;
 
     std::vector<uint8_t> handles(sbtSize);
-    if (m_vkGetRayTracingShaderGroupHandlesKHR(m_device, m_rtPipeline, 0, static_cast<uint32_t>(groupCount), sbtSize, handles.data()) != VK_SUCCESS) {
+    if (m_vkGetRayTracingShaderGroupHandlesKHR(*logicalDevice->vkGetLogicalDevice(), m_rtPipeline, 0, static_cast<uint32_t>(groupCount), sbtSize, handles.data()) != VK_SUCCESS) {
         throw std::runtime_error("failed to get ray tracing shader group handles");
     }
 
@@ -1773,13 +1732,13 @@ void SimpleRenderer::createRayTracingPipeline() {
                  stagingMemory);
 
     void* data;
-    vkMapMemory(m_device, stagingMemory, 0, sbtSize, 0, &data);
+    vkMapMemory(*logicalDevice->vkGetLogicalDevice(), stagingMemory, 0, sbtSize, 0, &data);
     std::memcpy(data, handles.data(), static_cast<size_t>(sbtSize));
-    vkUnmapMemory(m_device, stagingMemory);
+    vkUnmapMemory(*logicalDevice->vkGetLogicalDevice(), stagingMemory);
 
     copyBuffer(stagingBuffer, m_rtShaderBindingTable, sbtSize);
-    vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-    vkFreeMemory(m_device, stagingMemory, nullptr);
+    vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), stagingBuffer, nullptr);
+    vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), stagingMemory, nullptr);
 
     VkDeviceAddress sbtAddress = getBufferDeviceAddress(m_rtShaderBindingTable);
     m_rtRaygenRegion = {sbtAddress, handleSizeAligned, handleSizeAligned};
@@ -1789,9 +1748,9 @@ void SimpleRenderer::createRayTracingPipeline() {
 
     std::cout << "[RT] Shader binding table setup completed" << std::endl;
 
-    vkDestroyShaderModule(m_device, chitModule, nullptr);
-    vkDestroyShaderModule(m_device, missModule, nullptr);
-    vkDestroyShaderModule(m_device, rayGenModule, nullptr);
+    vkDestroyShaderModule(*logicalDevice->vkGetLogicalDevice(), chitModule, nullptr);
+    vkDestroyShaderModule(*logicalDevice->vkGetLogicalDevice(), missModule, nullptr);
+    vkDestroyShaderModule(*logicalDevice->vkGetLogicalDevice(), rayGenModule, nullptr);
 
     createRayTracingDescriptorSets();
     m_rtReady = true;
@@ -1801,7 +1760,7 @@ void SimpleRenderer::createRayTracingDescriptorSets() {
     std::cout << "[RT] Creating descriptor sets" << std::endl;
 
     if (m_rtDescriptorPool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(m_device, m_rtDescriptorPool, nullptr);
+        vkDestroyDescriptorPool(*logicalDevice->vkGetLogicalDevice(), m_rtDescriptorPool, nullptr);
         m_rtDescriptorPool = VK_NULL_HANDLE;
     }
 
@@ -1818,7 +1777,7 @@ void SimpleRenderer::createRayTracingDescriptorSets() {
     poolInfo.pPoolSizes = poolSizes;
     poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
 
-    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_rtDescriptorPool) != VK_SUCCESS) {
+    if (vkCreateDescriptorPool(*logicalDevice->vkGetLogicalDevice(), &poolInfo, nullptr, &m_rtDescriptorPool) != VK_SUCCESS) {
         throw std::runtime_error("failed to create ray tracing descriptor pool");
     }
 
@@ -1830,7 +1789,7 @@ void SimpleRenderer::createRayTracingDescriptorSets() {
     allocInfo.pSetLayouts = layouts.data();
 
     m_rtDescriptorSets.resize(MAX_FRAMES_IN_FLIGHT);
-    if (vkAllocateDescriptorSets(m_device, &allocInfo, m_rtDescriptorSets.data()) != VK_SUCCESS) {
+    if (vkAllocateDescriptorSets(*logicalDevice->vkGetLogicalDevice(), &allocInfo, m_rtDescriptorSets.data()) != VK_SUCCESS) {
         throw std::runtime_error("failed to allocate ray tracing descriptor sets");
     }
 
@@ -1913,7 +1872,7 @@ void SimpleRenderer::createRayTracingDescriptorSets() {
         indexWrite.pBufferInfo = &indexInfo;
 
     std::array<VkWriteDescriptorSet, 6> writes = {imageWrite, asWrite, uboWrite, lightingWrite, vertexWrite, indexWrite};
-    vkUpdateDescriptorSets(m_device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    vkUpdateDescriptorSets(*logicalDevice->vkGetLogicalDevice(), static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
     }
 
     std::cout << "[RT] Descriptor sets ready" << std::endl;
@@ -1922,11 +1881,11 @@ void SimpleRenderer::createRayTracingDescriptorSets() {
 void SimpleRenderer::cleanupRayTracingPipeline() {
     m_rtReady = false;
     if (m_rtShaderBindingTable != VK_NULL_HANDLE) {
-        vkDestroyBuffer(m_device, m_rtShaderBindingTable, nullptr);
+        vkDestroyBuffer(*logicalDevice->vkGetLogicalDevice(), m_rtShaderBindingTable, nullptr);
         m_rtShaderBindingTable = VK_NULL_HANDLE;
     }
     if (m_rtShaderBindingTableMemory != VK_NULL_HANDLE) {
-        vkFreeMemory(m_device, m_rtShaderBindingTableMemory, nullptr);
+        vkFreeMemory(*logicalDevice->vkGetLogicalDevice(), m_rtShaderBindingTableMemory, nullptr);
         m_rtShaderBindingTableMemory = VK_NULL_HANDLE;
     }
     m_rtRaygenRegion = {};
@@ -1935,19 +1894,19 @@ void SimpleRenderer::cleanupRayTracingPipeline() {
     m_rtCallableRegion = {};
 
     if (m_rtDescriptorPool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(m_device, m_rtDescriptorPool, nullptr);
+        vkDestroyDescriptorPool(*logicalDevice->vkGetLogicalDevice(), m_rtDescriptorPool, nullptr);
         m_rtDescriptorPool = VK_NULL_HANDLE;
     }
     if (m_rtPipeline != VK_NULL_HANDLE) {
-        vkDestroyPipeline(m_device, m_rtPipeline, nullptr);
+        vkDestroyPipeline(*logicalDevice->vkGetLogicalDevice(), m_rtPipeline, nullptr);
         m_rtPipeline = VK_NULL_HANDLE;
     }
     if (m_rtPipelineLayout != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(m_device, m_rtPipelineLayout, nullptr);
+        vkDestroyPipelineLayout(*logicalDevice->vkGetLogicalDevice(), m_rtPipelineLayout, nullptr);
         m_rtPipelineLayout = VK_NULL_HANDLE;
     }
     if (m_rtDescriptorSetLayout != VK_NULL_HANDLE) {
-        vkDestroyDescriptorSetLayout(m_device, m_rtDescriptorSetLayout, nullptr);
+        vkDestroyDescriptorSetLayout(*logicalDevice->vkGetLogicalDevice(), m_rtDescriptorSetLayout, nullptr);
         m_rtDescriptorSetLayout = VK_NULL_HANDLE;
     }
 }

@@ -14,7 +14,6 @@ class PhysicalDevice {
 public:
   struct Requirements {
     std::vector<std::string> requiredExtensions;
-    std::vector<DeviceFeature> requiredFeatures;
     std::vector<QueueType> requiredQueueTypes;
   };
 

@@ -11,9 +11,8 @@
 #include "engine/window_observers/default_observer.hpp"
 #include "engine/window_observers/camera_movement_observer.hpp"
 
-Application::Application() 
-    : window({})
-    , m_running(false)
+Application::Application()
+    : m_running(false)
     , m_lastTime(0.0f)
     , m_deltaTime(0.0f) {
 }
@@ -23,17 +22,23 @@ Application::~Application() {
 }
 
 void Application::run() {
+    initWindow();
     initVulkan();
-    initWindowObservers();
+    initInputEvents();
     mainLoop();
+}
+
+void Application::initWindow() {
+  window = std::make_unique<RHI::Window>();
 }
 
 void Application::initVulkan() {
     std::cout << "Creating renderer..." << std::endl;
-    m_renderer = std::make_unique<SimpleRenderer>(&window);
+    m_renderer = std::make_unique<SimpleRenderer>(&*window);
     
     std::cout << "Creating camera..." << std::endl;
-    m_camera = std::make_unique<Camera>(WINDOW_WIDTH, WINDOW_HEIGHT);
+    auto windowSize = window->getLogicalSize();
+    m_camera = std::make_unique<Camera>(windowSize.width, windowSize.height);
     
     std::cout << "Creating scene..." << std::endl;
     m_scene = std::make_unique<Scene>();
@@ -49,12 +54,12 @@ void Application::initVulkan() {
     std::cout << "Vulkan initialization complete!" << std::endl;
 }
 
-void Application::initWindowObservers() {
-  rootObserver = std::make_unique<Engine::DefaultObserver>(window);
+void Application::initInputEvents() {
+  rootObserver = std::make_unique<Engine::DefaultObserver>(*window);
   cameraObserver = std::make_unique<Engine::CameraMovementObserver>(*m_camera);
 
-  window.addObserver("root", &*rootObserver);
-  window.addObserver("camera", &*cameraObserver);
+  window->addObserver("root", &*rootObserver);
+  window->addObserver("camera", &*cameraObserver);
 }
 
 void Application::mainLoop() {
@@ -63,8 +68,8 @@ void Application::mainLoop() {
     
     std::cout << "Starting main loop..." << std::endl;
     
-    while (!window.shouldClose()) {
-        window.pollEvents();
+    while (!window->shouldClose()) {
+        window->pollEvents();
         
         float currentTime = static_cast<float>(glfwGetTime());
         m_deltaTime = currentTime - m_lastTime;
@@ -78,7 +83,7 @@ void Application::mainLoop() {
     }
     
     std::cout << "Main loop ended." << std::endl;
-    vkDeviceWaitIdle(m_renderer->getDevice());
+    vkDeviceWaitIdle(*m_renderer->getDevice().vkGetLogicalDevice());
 }
 
 void Application::drawFrame() {

@@ -12,6 +12,7 @@
 #include "rhi/window.hpp"
 #include "rhi/instance.hpp"
 #include "rhi/physical_device.hpp"
+#include "rhi/logical_device.hpp"
 
 class Camera;
 class Scene;
@@ -52,7 +53,7 @@ public:
     void endFrame();
     void initGeometry(Scene* scene);
     
-    VkDevice getDevice() const { return m_device; }
+    RHI::LogicalDevice& getDevice() const { return *logicalDevice; }
 
 private:
     void initVulkan();
@@ -80,7 +81,6 @@ private:
     void updateUniformBuffer(uint32_t currentImage, Camera* camera);
     void updateLightingBuffer(uint32_t currentImage);
     
-    bool isDeviceSuitable(VkPhysicalDevice device);
     bool findQueueFamilies(VkPhysicalDevice device, uint32_t& graphicsFamily, uint32_t& presentFamily);
     void loadRayTracingFunctions();
     void createAccelerationStructures();
@@ -102,11 +102,9 @@ private:
     VkInstance m_instance;
     VkSurfaceKHR m_surface;
     std::unique_ptr<RHI::Instance> instance = nullptr;
-
-    VkPhysicalDevice m_physicalDevice;
     std::unique_ptr<RHI::PhysicalDevice> physicalDevice = nullptr;
+    std::unique_ptr<RHI::LogicalDevice> logicalDevice = nullptr;
 
-    VkDevice m_device;
     VkQueue m_graphicsQueue;
     VkQueue m_presentQueue;
     

@@ -21,7 +21,7 @@ namespace RHI {
   public:
     static constexpr std::uint32_t DEFAULT_WIDTH = 1920;
     static constexpr std::uint32_t DEFAULT_HEIGHT = 1080;
-    static inline const std::string DEFAULT_TITLE = "Window";
+    static inline const std::string DEFAULT_TITLE = "Cyberpunk City Demo";
 
     struct Settings {
       bool resizable = false;
@@ -31,6 +31,8 @@ namespace RHI {
         .height = DEFAULT_HEIGHT,
       };
     };
+
+    explicit Window() : Window({}) {}
 
     explicit Window(const Settings& settings) {
       createWindow(settings);
@@ -48,8 +50,6 @@ namespace RHI {
     auto operator=(Window&&) -> Window&& = delete;
 
     static auto getInstanceSurfaceExtensions() -> std::vector<std::string> {
-      ensureGlfwAvailable();
-
       std::uint32_t glfwExtensionCount = 0;
       auto* const glfwExtensions =
           glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
@@ -145,7 +145,7 @@ namespace RHI {
     static bool glfwInitialized;
 
     void createWindow(const Settings& settings) {
-      ensureGlfwAvailable();
+      glfwInit();
 
       glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
@@ -185,14 +185,5 @@ namespace RHI {
         }
       });
     }
-
-    static void ensureGlfwAvailable() {
-      if (!glfwInitialized) {
-        glfwInit();
-        glfwInitialized = true;
-      }
-    }
   };
-
-  bool Window::glfwInitialized = false;
 }
